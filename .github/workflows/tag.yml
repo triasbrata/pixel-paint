@@ -1,0 +1,153 @@
+# CI numbers and releases the app in batches, and only once the tests have
+# passed on it. Not every push to main is a release: commits that change the
+# app gather until there are ten since the last release, or until one of them
+# is a new feature, marked with a `Release: feature` trailer. A push short of
+# that says how many have gathered and stops. Started by hand (Actions › Tag ›
+# Run workflow, on main) it releases main's head at once, whatever has
+# gathered, through the same test gate.
+#
+# The highest release tag, annotated "Pixel Paint X.Y.Z, build N", gives way
+# to vX.Y.(Z+1) with build N+1, or to X.Y.0 when pubspec.yaml's version line
+# asks for a new X.Y by hand. The tests (ci.yml) run on the pushed commit
+# first; passing tags it, and release.yml then builds and publishes that tag.
+# Failing tags nothing and publishes nothing, and the next push tries again.
+# Nothing is committed back: pubspec.yaml's version line only sets X.Y.
+#
+# The very first release, v1.0.0 build 1, is the bundle uploaded by hand in
+# the Play Console (Play takes nothing over its API before that); its tag is
+# made by hand too, on the commit it was built from (README.md, Releasing).
+#
+# The tag is made with this run's own GITHUB_TOKEN. A tag made that way starts
+# no other workflow, so this run drives every stage itself. Running on main is
+# what reaches the `release` environment's secrets: only main can deploy to
+# it, so a tag made anywhere else releases nothing.
+name: Tag
+
+on:
+  push:
+    branches: [main]
+    # What the app is built from; a push of docs, tests or CI alone is no release.
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'web/**'
+      - 'assets/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  # A release now, for what changed outside the app's paths or cannot wait
+  # for the batch.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One at a time, so each run counts from the tag the one before it made.
+concurrency: tag
+
+jobs:
+  next:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+      label: ${{ steps.next.outputs.label }}
+      message: ${{ steps.next.outputs.message }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: next
+        env:
+          # How many app commits make a release without a feature among them.
+          RELEASE_EVERY: 10
+        run: |
+          # By hand on main only: a tag anywhere else would number a commit
+          # that never reached main, and could not be released anyway.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::run by hand on main only, not $GITHUB_REF"
+            exit 1
+          fi
+          if [ -n "$(git tag --points-at HEAD 'v[0-9]*')" ]; then
+            echo "$(git tag --points-at HEAD 'v[0-9]*') is this commit already"
+            exit 0
+          fi
+          last=$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          [ -n "$last" ] || { echo "::error::no vX.Y.Z tag to count from: tag the first upload by hand (README.md, Releasing)"; exit 1; }
+          build=$(git for-each-ref --format='%(contents:subject)' "refs/tags/$last" |
+            sed -n 's/^Pixel Paint .*, build \([0-9][0-9]*\)$/\1/p')
+          [ -n "$build" ] || { echo "::error::$last is not annotated \"Pixel Paint X.Y.Z, build N\""; exit 1; }
+
+          # Released in batches, not per push: once RELEASE_EVERY commits that
+          # change the app have gathered since the last release, or at once
+          # when one of them is a new feature. A feature says so with a
+          # `Release: feature` trailer, beside its Co-Authored-By. These are
+          # on.push.paths' own paths, and must stay the same list.
+          app=(lib android ios web assets pubspec.yaml pubspec.lock)
+          count=$(git rev-list --count --no-merges "$last..HEAD" -- "${app[@]}")
+          # Into a variable first: grep -q stopping early would SIGPIPE git
+          # log, and under pipefail a match would then read as no match.
+          trailers=$(git log --no-merges --format='%(trailers:key=Release,valueonly)' "$last..HEAD" -- "${app[@]}")
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            why="run by hand, $count app commits since $last"
+          elif grep -qiE '^[[:space:]]*feature[[:space:]]*$' <<< "$trailers"; then
+            why="a new feature among $count app commits since $last"
+          elif [ "$count" -ge "$RELEASE_EVERY" ]; then
+            why="$count app commits since $last"
+          else
+            echo "$count of $RELEASE_EVERY app commits since $last, and none a new feature: not a release yet"
+            exit 0
+          fi
+
+          xy=$(sed -n 's/^version: *\([0-9]*\.[0-9]*\)\..*/\1/p' pubspec.yaml)
+          last_xy=${last#v}
+          last_xy=${last_xy%.*}
+          if [ "$xy" = "$last_xy" ]; then
+            name=$xy.$((${last##*.} + 1))
+          else
+            name=$xy.0
+          fi
+          build=$((build + 1))
+          if git rev-parse -q --verify "refs/tags/v$name" > /dev/null; then
+            echo "::error::v$name is taken, yet it follows $last: is pubspec.yaml's X.Y behind it?"
+            exit 1
+          fi
+
+          echo "v$name, build $build: $why"
+          {
+            echo "tag=v$name"
+            echo "label=$name+$build"
+            echo "message=Pixel Paint $name, build $build"
+          } >> "$GITHUB_OUTPUT"
+
+  # The gate: analyze and the whole test suite on the commit to be released.
+  check:
+    needs: next
+    if: needs.next.outputs.tag != ''
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  tag:
+    needs: [next, check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Make the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.next.outputs.tag }}
+          MESSAGE: ${{ needs.next.outputs.message }}
+        run: |
+          object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$TAG" -f message="$MESSAGE" \
+            -f object="$GITHUB_SHA" -f type=commit --jq .sha)
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" > /dev/null
+          echo "tests passed; tagged $GITHUB_SHA as $TAG"
+
+  release:
+    needs: [next, tag]
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.next.outputs.tag }}
+    secrets: inherit

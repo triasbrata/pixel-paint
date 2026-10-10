@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play Games IDs. Replaced by tool/import_games_ids.py with the file
+     Play Console exports (Play Games Services → Leaderboards → Get resources).
+     Empty until then: the game runs, the online leaderboards stay hidden. -->
+<resources>
+    <string name="app_id" translatable="false"></string>
+</resources>

@@ -1,0 +1,49 @@
+# flutter analyze and flutter test on every pull request and every push to
+# main, and for tag.yml before it numbers a release. `check` is the status a
+# pull request needs. The tests' line coverage of lib/ goes on the run's
+# summary.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A pull request's new push replaces its old run; every commit on main keeps
+# its own.
+concurrency:
+  group: ci-${{ github.workflow_ref }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'pr' }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # The paid asset packs, git-ignored, from their encrypted archive
+      # (tool/private_assets.sh). A pull request from a fork gets no secrets,
+      # so it stops here.
+      - name: Unpack the private assets
+        env:
+          ASSETS_PASSWORD: ${{ secrets.ASSETS_PASSWORD }}
+        run: tool/private_assets.sh unpack
+
+      - uses: ./.github/actions/flutter
+        timeout-minutes: 15
+      - run: flutter analyze
+      - run: flutter test --coverage
+
+      # The share of lib/'s lines the tests run, from the lcov file flutter
+      # test writes. lcov lists only the files some test loads, so a file no
+      # test imports at all is left out rather than counted as 0%.
+      - name: Coverage
+        run: |
+          pct=$(awk -F: '/^LF:/ { lf += $2 } /^LH:/ { lh += $2 }
+            END { if (lf) printf "%.1f", 100 * lh / lf }' coverage/lcov.info)
+          echo "Line coverage of \`lib/\`: **${pct:-unmeasured}%**" >> "$GITHUB_STEP_SUMMARY"

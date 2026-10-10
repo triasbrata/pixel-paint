@@ -1,0 +1,32 @@
+# Google Play uploads. Run from android/:
+#
+#   fastlane listing    store texts, icon, feature graphic and screenshots
+#   fastlane internal   the release bundle to the internal testing track
+#
+# The store listing lives in fastlane/metadata/android/en-US; the graphics are
+# made by tool/update_store_art.sh. The very first bundle of a new app has to be
+# uploaded by hand in Play Console; fastlane can do every one after that.
+default_platform(:android)
+
+platform :android do
+  desc "Upload the store listing only (no build)"
+  lane :listing do
+    upload_to_play_store(
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+    )
+  end
+
+  desc "Upload build/app/outputs/bundle/release/app-release.aab to internal testing"
+  lane :internal do
+    upload_to_play_store(
+      track: "internal",
+      aab: "../build/app/outputs/bundle/release/app-release.aab",
+      release_status: "draft",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+end

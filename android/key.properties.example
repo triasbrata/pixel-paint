@@ -1,0 +1,15 @@
+# Copy to android/key.properties (git-ignored) and fill in. Create the upload key once:
+#
+#   keytool -genkeypair -v -keystore ~/keys/pixel-paint-upload.jks -alias upload \
+#       -keyalg RSA -keysize 2048 -validity 10000
+#
+# Keep the .jks file and both passwords somewhere safe (a password manager):
+# every update to Google Play and to the itch.io APK must be signed with it.
+storeFile=/Users/you/keys/pixel-paint-upload.jks
+keyAlias=upload
+# The passwords, either here...
+storePassword=
+keyPassword=
+# ...or in a file each (only its first line is read), to keep them out of this one:
+# storePasswordFile=/Users/you/keys/pixel-paint-pass.txt
+# keyPasswordFile=/Users/you/keys/pixel-paint-pass.txt

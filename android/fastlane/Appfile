@@ -1,0 +1,4 @@
+# Google Play access for fastlane: a service-account JSON key with access to this
+# app in Play Console (see store/play-console.md). Never commit the key.
+json_key_file(ENV.fetch("PLAY_JSON_KEY", "fastlane/play-service-account.json"))
+package_name("com.triasbrata.color_by_number")

@@ -1,0 +1,234 @@
+# Releases a v* tag's commit: called by tag.yml with the tag it just made, or
+# by hand from the Actions tab, with a tag to release again or none for main
+# as it stands. `version` reads the release's number from the tag, "Pixel
+# Paint X.Y.Z, build N", and every build writes it into its own copy of
+# pubspec.yaml. `android` runs tool/release.sh --publish, which signs the
+# bundle with the upload key and releases it on Play's closed testing track
+# (by hand it is a --dry-run unless told otherwise). `itch` builds the HTML5
+# zip and the APKs and pushes them with butler, when the repository variable
+# ITCH_TARGET names the page (user/pixel-paint). The secrets live in the
+# `release` environment, which only a workflow running on main can reach.
+# README.md, Releasing.
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      dry_run:
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: A v* tag to release again; empty is main as it stands
+        type: string
+        default: ''
+      dry_run:
+        description: Android - everything but the commit that reaches testers
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency: release
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.v.outputs.name }}
+      build: ${{ steps.v.outputs.build }}
+      label: ${{ steps.v.outputs.name }}+${{ steps.v.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$TAG" ]; then
+            object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
+              --jq 'select(.object.type == "tag") | .object.sha')
+            [ -n "$object" ] || { echo "::error::$TAG is not an annotated tag"; exit 1; }
+            build=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq .message |
+              sed -n 's/^Pixel Paint .*, build \([0-9][0-9]*\)$/\1/p' | head -n 1)
+            name=${TAG#v}
+          else
+            # By hand with no tag: pubspec.yaml's line on main as it stands.
+            line=$(sed -n 's/^version: *//p' pubspec.yaml)
+            name=${line%+*}
+            build=${line#*+}
+          fi
+          [ -n "$build" ] || { echo "::error::no build number for ${TAG:-main}"; exit 1; }
+          echo "$name, build $build"
+          { echo "name=$name"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      # The paid asset packs, git-ignored, from their encrypted archive
+      # (tool/private_assets.sh). A pull request from a fork gets no secrets,
+      # so it stops here.
+      - name: Unpack the private assets
+        env:
+          ASSETS_PASSWORD: ${{ secrets.ASSETS_PASSWORD }}
+        run: tool/private_assets.sh unpack
+
+      # The release's number, committed in this runner only: tool/release.sh
+      # builds from a clean tree, and main's pubspec.yaml only sets X.Y.
+      - name: Set the version
+        env:
+          VERSION: ${{ needs.version.outputs.label }}
+        run: |
+          sed -i.orig "s/^version: .*/version: $VERSION/" pubspec.yaml && rm pubspec.yaml.orig
+          git diff --quiet pubspec.yaml ||
+            git -c user.name=CI -c user.email=ci@invalid commit -q -m "Version $VERSION" pubspec.yaml
+
+      # Gradle needs JDK 17; release.sh needs its keytool.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: ./.github/actions/flutter
+        timeout-minutes: 15
+
+      - name: Write the signing config and the Play key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          PLAY_KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          for secret in KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD PLAY_KEY; do
+            [ -n "$(printenv "$secret")" ] || { echo "::error::The secret behind $secret is not set"; exit 1; }
+          done
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          printenv PLAY_KEY > "$RUNNER_TEMP/play.json"
+          # A Java properties file: a backslash in a password would need doubling.
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/upload.jks"
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > android/key.properties
+
+      - name: Restore Gradle's downloads
+        id: gradle
+        timeout-minutes: 10
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-release-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-release-${{ runner.os }}-
+
+      - name: Build and publish
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ runner.temp }}/play.json
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: tool/release.sh --publish $DRY_RUN
+
+      - name: Save Gradle's downloads
+        if: github.ref == 'refs/heads/main' && steps.gradle.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: ${{ steps.gradle.outputs.cache-primary-key }}
+
+      - name: Remove the signing files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks" "$RUNNER_TEMP/play.json" android/key.properties
+
+  # The itch.io page: the HTML5 zip and one APK per CPU type, signed with the
+  # same upload key so players can install each version over the last.
+  # Only for a tag's real release, and only once ITCH_TARGET is set.
+  itch:
+    needs: version
+    if: vars.ITCH_TARGET != '' && inputs.tag != '' && !inputs.dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      # The paid asset packs, git-ignored, from their encrypted archive
+      # (tool/private_assets.sh). A pull request from a fork gets no secrets,
+      # so it stops here.
+      - name: Unpack the private assets
+        env:
+          ASSETS_PASSWORD: ${{ secrets.ASSETS_PASSWORD }}
+        run: tool/private_assets.sh unpack
+
+      - name: Set the version
+        env:
+          VERSION: ${{ needs.version.outputs.label }}
+        run: |
+          sed -i.orig "s/^version: .*/version: $VERSION/" pubspec.yaml && rm pubspec.yaml.orig
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: ./.github/actions/flutter
+        timeout-minutes: 15
+
+      - name: Write the signing config
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          for secret in KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD BUTLER_API_KEY; do
+            [ -n "$(printenv "$secret")" ] || { echo "::error::The secret behind $secret is not set"; exit 1; }
+          done
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/upload.jks"
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > android/key.properties
+
+      - name: Install butler
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/butler.zip" https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          mkdir -p "$RUNNER_TEMP/butler" && unzip -q "$RUNNER_TEMP/butler.zip" -d "$RUNNER_TEMP/butler"
+          chmod +x "$RUNNER_TEMP/butler/butler"
+          echo "$RUNNER_TEMP/butler" >> "$GITHUB_PATH"
+
+      - name: Build and push
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_TARGET: ${{ vars.ITCH_TARGET }}
+        run: tool/build_itch.sh
+
+      - name: Remove the signing files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks" android/key.properties

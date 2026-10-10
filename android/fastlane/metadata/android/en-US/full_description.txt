@@ -1,0 +1,27 @@
+Pixel Paint turns pixel art into a color-by-number puzzle. Every cell of a gray picture shows a number, and the color guide tells you which color it is. Paint each cell with its color and watch the picture come to life.
+
+Everything is cute pixel art: pick a picture from a storybook under a pastel sky, and a little slime friend cheers your combos (and politely hops out of your way).
+
+29 PICTURES, EASY TO EXPERT
+Easy pictures use up to 5 colors, big and clear. Expert scenes have up to 40 colors with lots of similar shades: a sleepy cat, a shiba in a meadow, a moon witch, a mermaid reef and a treehouse tea party.
+
+SCORES, COMBOS AND LEADERBOARDS
+• Every correct cell scores: 10 points with the Pencil, 3 a cell with Fill
+• Keep painting quickly to build a combo, all the way up to 20x
+• Slow down and the combo slips back one level at a time; a wrong color ends it
+• Need a break? Pause anytime and the combo waits for you
+• Beat your best score on every picture
+• Compare scores on a leaderboard for each picture with Google Play Games (optional)
+
+PAINT YOUR WAY
+• Pencil: tap or drag across cells to paint them
+• Fill: one tap paints a whole touching area of the same number
+• Cells with the selected number light up, so they're easy to spot
+• Pinch to zoom into big pictures; the mini map shows where you are
+• "Find a cell" jumps to the next cell still waiting for your color
+• Prefer it calm? Ignore the combo and paint at your own pace
+
+NO ADS
+No ads and no in-app purchases. Your progress is saved on your device and the game plays offline; only the leaderboards need a connection and a Google Play Games sign-in. Cozy background music, which you can turn off.
+
+Pictures and UI art from the Cute Fantasy packs by Kenmi; the slime from the Tiny RPG pack by Zerie.

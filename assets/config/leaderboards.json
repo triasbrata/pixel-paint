@@ -1,0 +1,5 @@
+{
+  "_about": "Google Play Games leaderboard IDs per picture. Made by tool/import_games_ids.py from the Play Console export; don't edit by hand.",
+  "app_id": "",
+  "leaderboards": {}
+}
