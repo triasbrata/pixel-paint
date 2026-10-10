@@ -1,0 +1,4 @@
+#!/bin/sh
+# A branch checkout brought another asset archive? Unpack it (tool/private_assets.sh).
+[ "${3:-0}" = 1 ] || exit 0
+exec tool/private_assets.sh post-update

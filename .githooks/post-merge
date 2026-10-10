@@ -1,0 +1,3 @@
+#!/bin/sh
+# A pull or merge brought another asset archive? Unpack it (tool/private_assets.sh).
+exec tool/private_assets.sh post-update

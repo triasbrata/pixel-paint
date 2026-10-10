@@ -13,7 +13,8 @@ The paid art is in git only encrypted (see Asset license), so a fresh clone firs
 unpacks it, with the password in `ASSETS_PASSWORD`:
 
 ```sh
-tool/private_assets.sh unpack   # once after cloning: assets/ui, sprites, puzzles, sfx
+tool/private_assets.sh unpack          # once after cloning: assets/ui, sprites, puzzles, sfx
+tool/private_assets.sh install-hooks   # and the hooks that re-encrypt them on commit
 ./run.sh                 # Chrome (default)
 ./run.sh macos           # macOS desktop app
 ./run.sh ios             # iOS Simulator (started if it isn't running)
@@ -278,13 +279,31 @@ them. Shipping them inside the app is fine; publishing the files is not.
 
 **This repository is public, so the paid art never goes in it as files.**
 `assets/ui/`, `assets/sprites/`, `assets/puzzles/` and `assets/sfx/` are git-ignored
-and travel only as `private_assets.tar.gz.enc` (AES-256, OpenSSL with PBKDF2), with
-`private_assets.sha256` listing each file's hash:
+and travel only as `private_assets.tar.gz.enc` (AES-256, OpenSSL with PBKDF2).
+`private_assets.tree` is their tree in one file, a line per file with its mode, size
+and content hash; its hash is the assets' fingerprint, so a change to any file (added,
+removed, edited, its mode) changes it. Modification times are left out on purpose: a
+checkout or a `touch` changes them without changing the art.
+
+Git hooks keep the archive and the folders in step (`tool/private_assets.sh
+install-hooks` once per clone):
+
+- **pre-commit**: the fingerprint differs from the committed tree, so the assets are
+  re-encrypted and the archive and the tree go into the commit. It refuses when the
+  archive in git changed since the assets were last unpacked (a pull from another
+  machine), rather than encrypt the older art over it.
+- **post-checkout / post-merge**: a new archive came in and the assets have no edits of
+  their own, so it is unpacked.
+
+The folders being git-ignored, a change to the assets alone leaves nothing staged, and
+git stops at "nothing to commit" before the hook runs: commit those with
+`tool/private_assets.sh commit -m "..."`.
 
 ```sh
-tool/private_assets.sh unpack   # the folders from the archive (CI does this with its ASSETS_PASSWORD secret)
-tool/private_assets.sh pack     # after changing any of them: re-encrypt, then commit both files
-tool/private_assets.sh check    # do the folders still match the archive?
+tool/private_assets.sh unpack          # the folders from the archive (CI does this with its ASSETS_PASSWORD secret)
+tool/private_assets.sh install-hooks   # once per clone: git config core.hooksPath .githooks
+tool/private_assets.sh commit -m "New puzzles"   # a change to the assets alone
+tool/private_assets.sh check           # do the folders still match the archive?
 ```
 
 The password is the repository secret `ASSETS_PASSWORD`; the owner keeps it in
