@@ -23,7 +23,7 @@ Everything else Play Console asks for is below.
 
 ## Decide before the first upload
 
-- **Package name** `com.triasbrata.color_by_number` (in `android/app/build.gradle.kts`)
+- **Package name** `cloud.brata.pixelpaint` (in `android/app/build.gradle.kts`)
   can never change once the app is on Play.
 - **Upload key.** Create it once and keep the file and passwords safe:
   ```sh
@@ -142,7 +142,7 @@ button (and still keeps each picture's best score on the device).
 
 1. Play Console → *Grow users → Play Games Services → Setup and management →
    Configuration*: create a Play Games project for this app.
-2. *Credentials*: add an Android credential for package `com.triasbrata.color_by_number`
+2. *Credentials*: add an Android credential for package `cloud.brata.pixelpaint`
    with the **SHA-1 of the app signing key** (Play Console → *Test and release →
    App integrity*) and another with the SHA-1 of your **upload key**
    (`keytool -list -v -keystore ~/keys/pixel-paint-upload.jks`), so both store and

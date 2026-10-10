@@ -15,7 +15,7 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.triasbrata.color_by_number"
+    namespace = "cloud.brata.pixelpaint"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -26,7 +26,7 @@ android {
 
     defaultConfig {
         // The Google Play package name: it can never change once the app is uploaded.
-        applicationId = "com.triasbrata.color_by_number"
+        applicationId = "cloud.brata.pixelpaint"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

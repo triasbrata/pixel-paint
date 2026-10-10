@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-PACKAGE = "com.triasbrata.color_by_number"
+PACKAGE = "cloud.brata.pixelpaint"
 SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 V3 = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{PACKAGE}"
 UPLOAD = f"https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/{PACKAGE}"

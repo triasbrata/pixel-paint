@@ -1,4 +1,4 @@
-package com.triasbrata.color_by_number
+package cloud.brata.pixelpaint
 
 import io.flutter.embedding.android.FlutterActivity
 
